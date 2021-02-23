@@ -1,43 +1,17 @@
+# # ## *********************************
+# # ## Reference points for Reference point checkbox plots::
+# names(RefPts)<- c("stock", "scenario", "refpoint","value")
+# RefPts$indicator <- NA
+# RefPts$indicator[RefPts$refpoint =="Bmsy"] <-"ssb"
+# RefPts$indicator[RefPts$refpoint =="Fmsy"] <-"f"
+# ## *********************************
 
-
- data<-reshape(as.data.frame(bio), direction = "wide",
-               timevar = "indicator", v.names = c("q05","q50","q95"),
-               idvar = c("year","stock","scenario"))
-
- data<-data[, c("stock", "year","scenario", "q50.f", "q50.ssb")]
-
-
- data$Bmsy<-NA
- data$Fmsy<-NA
- 
- bmsy  <- fmsy <-  numeric(length(unique(reference_points$stock)))
- names(bmsy)  <- names(bmsy) <- unique(reference_points$stock)
- 
- for(st in unique(reference_points$stock)){
-   bmsy[st] <- reference_points$value[reference_points$stock== st & reference_points$indicator=="Bmsy"] 
-   data$Bmsy[data$stock==st] <- bmsy[st] 
-   
-   fmsy[st] <- reference_points$value[reference_points$stock== st & reference_points$indicator=="Fmsy"] 
-   data$Fmsy[data$stock==st] <- fmsy[st] 
-  }
-
- names(data)<- c("unit","year","scenario", "q50.f","q50.ssb","Bmsy","Fmsy")
-
- data$stock<-data$q50.ssb/data$Bmsy
- data$harvest<-data$q50.f/data$Fmsy
-
- # save(data, file="data/data.RData")
- #  load("data/data.RData")
-
- 
- head(data)
-# Begin shinyUI
 
 ui <- tagList(
   shinyjs::useShinyjs(),
-  includeCSS("css/solar.css"),
+  includeCSS("css/lumen.css"),
 
-  navbarPage(
+  navbarPage( id = "tabs",
     title="FLBEIA SHINY",
     fluid=FALSE, # TRUE Layout izateko fluid baina FALSE ikonoa jarri ahal izateko
     inverse=TRUE,
@@ -60,7 +34,7 @@ ui <- tagList(
     navbarMenu("Simulations",
                tabPanel("Stocks", 
                         source("ui_files/PAGE_simul_stocks.r",local =TRUE)$value),
-               tabPanel("Fleets",
+               tabPanel(id="Fleets","Fleets",
                         source("ui_files/PAGE_simul_fleets.r",local =TRUE)$value),
                tabPanel("Fleets by stock",
                         source("ui_files/PAGE_simul_fleetsby.r",local =TRUE)$value),

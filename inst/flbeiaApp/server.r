@@ -1,16 +1,70 @@
 
+# Change the size of the plot area: https://groups.google.com/g/shiny-discuss/c/dkZxTvfHOvo?pli=1
+
+source ("global.R") # radar plot function
+
 server <- function(input, output, session){
 
-#-----------------------------------------------------------------------------------------------------------------------  
-# PAGE_simulation STOCK 
-#-----------------------------------------------------------------------------------------------------------------------  
+  
+  observe({
+    
+    if (version == 1){ 
+      
+      #shinyjs::show(id = "Fleets")
+      showTab(inputId = "tabs", target = "Fleets")
+      showTab(inputId = "tabs", target = "Fleets by stock")
+      showTab(inputId = "tabs", target = "Metiers")
+      showTab(inputId = "tabs", target = "Metiers by stock")
+
+      
+      }else {
+      
+      hideTab(inputId = "tabs", target = "Fleets")
+      hideTab(inputId = "tabs", target = "Fleets by stock")
+      hideTab(inputId = "tabs", target = "Metiers")
+      hideTab(inputId = "tabs", target = "Metiers by stock")
+    }
+    })
   
   
-  PlotHeight_stk <- reactive({
-    
-    nids <- length(input$stockS)
-    
-    return(300*nids)})
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~-  
+  #### PAGE_about  ####
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~-  
+  
+  
+  output$value <- renderText({ 
+    req(input$submit)
+    input$caption 
+    })
+  
+   observeEvent(input$submit, {
+     
+   if(input$submit %% 2 == 1){
+     shinyjs::hide(id = "caption")
+     shinyjs::show(id = "value")
+    }else{         
+     shinyjs::show(id = "caption")
+     shinyjs::hide(id = "value")
+    }
+})
+   
+   #CASE STUDY TEXT
+   
+   output$cs <- renderTable({
+     desc
+   }, colnames = F)
+  
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~-  
+   #### PAGE_simulation STOCK  ####
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~-  
+  
+  
+  # PlotHeight_stk <- reactive({
+  #   
+  #   nids <- length(input$stockS)
+  #   
+  #   return(300*nids)})
+  # 
   
   observe ({
     dataS<-reactive({
@@ -21,19 +75,59 @@ server <- function(input, output, session){
           & bio$scenario%in%input$scenarioS,]
     })
     
+    dataSI<-reactive({
+      req(input$iterS)
+      bioIt[bioIt$year>=input$rangeS[1] & bioIt$year<=input$rangeS[2] 
+             & bioIt$stock%in%input$stockS
+             & bioIt$indicator%in%input$indicatorS
+             & bioIt$scenario%in%input$scenarioS
+             & bioIt$iter%in%input$iterS,]
+    })
+
+    datarpS<-reactive({
+        req(input$stockS)
+        RefPts[RefPts$stock%in%input$stockS
+                & RefPts$indicator%in%input$indicatorS
+                & RefPts$scenario%in%input$scenarioS,]
+      })
+    
     
     plotStock <- function(){
       
-      p <-ggplot(dataS(), aes(x=year, y=q50, color=scenario))+
-        geom_line(aes(color=scenario), lwd = 1) +
+      p <-ggplot()+
+        geom_line(data = dataS(), aes(x=year, y=q50, color=scenario), size = input$lwdS) +
         ylab("")+xlab("Year")+
-        theme(strip.text=element_text(size=16),
-              legend.title=element_text(size=14),
-              axis.title= element_text(size =14))
+        theme_bw()+
+        theme( strip.text=element_text(size=16),
+               title=element_text(size=16),
+               text=element_text(size=16))
+      
+      # Iteraction
+       if(!is.null(input$iterS)){
+         p <- p + geom_line(data = dataSI(), aes(x=year, y=value, group = interaction(scenario, iter), color = scenario,  linetype = iter), lwd=1)+
+           scale_linetype_manual(values = c(2:6))
+       }
+
+      if(!is.null(proj.yr)){
+        p <- p +  geom_vline(data = dataS(), aes(xintercept=proj.yr), color="grey", linetype="dotted", lwd =1) # projection starting year 
+      }
+      
+      if(input$dotLineS == TRUE) p <- p +  geom_point(data = dataS(), aes(x=year, y=q50, color=scenario), size = input$dszS)
+      
+      # Refence points
+        if (input$refpointS == TRUE ){
+          validate (
+            need(nrow(datarpS())>0, "Please check if reference points are loaded or adequate indicator selected"))
+          #p <- p +geom_hline(data = datarpS(), aes(yintercept=value), color="red", linetype="dotted", lwd =1)
+          p <- p +geom_hline(data = datarpS(), aes(yintercept=value, group = interaction(scenario, refpt_type),  color= scenario, linetype=refpt_type), lwd =1)+
+            scale_linetype_manual(values = c(2:4))
+          #! MK: debes cambiar para que acepte mas de un pto de referencia (poner distintos tipos de linea)
+          }
       
       # Confidence intervals
       if (input$fitCIS == TRUE){
-        p <- p + geom_ribbon(aes(x=year, ymin=q05, ymax=q95,fill = scenario), alpha=0.3)
+        p <- p + geom_ribbon(data = dataS(), aes(x=year, ymin=q05, ymax=q95,fill = scenario), alpha=0.3)#+
+                 #geom_ribbon(data = dataSI(), aes(x=year, ymin=q05, ymax=q95,group = interaction(scenario, iter), fill = scenario), alpha=0.1)
       }
       
       if(input$fitS == FALSE){
@@ -47,8 +141,10 @@ server <- function(input, output, session){
     
     
     output$plotS<-renderPlot({
+
       print(plotStock())
-    }, height = PlotHeight_stk)
+    } #, height = PlotHeight_stk
+    )
     
     
     # Code to download the plot
@@ -78,32 +174,135 @@ server <- function(input, output, session){
   })# end of the observe stock 
 
   print('one')
-#-----------------------------------------------------------------------------------------------------------------------  
-# PAGE_simulation STOCK_kobe plot 
-#-----------------------------------------------------------------------------------------------------------------------  
   
- observe({ dataK<-reactive({
+  
+  
+  #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~-  
+  #### PAGE_simulation STOCK AREA  ####
+  #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~-  
+  
+  
+  # PlotHeight_stk <- reactive({
+  #   
+  #   nids <- length(input$stockS)
+  #   
+  #   return(300*nids)})
+  # # 
+  # 
+  observe ({
+    dataSA<-reactive({
+      bio <- bio %>% filter(year >= input$rangeSA[1], year <= input$rangeSA[2],
+                            stock %in% input$stockSA,
+                            indicator %in% input$indicatorSA,
+                            scenario %in% input$scenarioSA)
+      if(input$percSA == TRUE){
+      bio <- bio  %>% #group_by(year, stock, scenario, indicator) %>%
+        #summarise(n = sum(q50)) 
+         ungroup() %>%  
+         group_by(year, scenario, indicator) %>%
+        mutate(p = q50/sum(q50)) %>% mutate(q50=p)
+      
+    }
+    return(bio)
+      })
+
+    plotStockArea <- function(){
+
+      p <-ggplot(data = dataSA())+
+        geom_area(aes(x=year, y=q50, fill=stock), size=0.5, colour="grey") +
+        ylab("")+xlab("Year")+
+        theme_bw()+
+        theme(strip.text=element_text(size=16),
+               title=element_text(size=16),
+               text=element_text(size=16))
+
+      if(!is.null(proj.yr)){
+        p <- p +  geom_vline(aes(xintercept=proj.yr), color="grey", linetype="dotted", lwd =1) # projection starting year
+      }
+      
+      if(input$fitSA == FALSE){
+        p <- p + facet_grid(scenario~indicator)
+      }
+      else{
+        p <- p + facet_wrap(scenario~indicator, scale = 'free_y')
+      }
+      
+    }
+
+
+    output$plotSA <-renderPlot({
+
+      print(plotStockArea())
+    } #, height = PlotHeight_stk
+    )
+
+
+    # Code to download the plot
+    getWSA <- function(){
+      return(input$fileWSA)
+    }
+
+    getHSA <- function(){
+      return(input$fileHSA)
+    }
+
+    getSSA <- function(){
+      return(input$fileScSA)
+    }
+
+    # Download the plot
+    output$downSA <- downloadHandler(
+      filename =  function() {
+        paste(input$filenmSA, input$fileTypeSA, sep=".")
+      },
+      # content is a function with argument file. content writes the plot to the device
+      content = function(file) {
+        ggsave(file, plotStockArea(), width = getWSA(), height = getHSA(), units = 'cm', scale = getSSA())
+      }
+    )
+
+  })# end of the observe stock
+
+  print('one - b')
+  
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~-  
+#### PAGE_simulation STOCK_kobe plot ####
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~-  
+  
+ observe({ 
+   dataK<-reactive({
         req(input$stockK)
   
-    data[data$year>=input$rangeK[1] & data$year<=input$rangeK[2] 
-        & data$unit%in%input$stockK
-        & data$scenario%in%input$scenarioK,]
-  })
+    res <- bio.kobe[bio.kobe$year>=input$rangeK[1] & bio.kobe$year<=input$rangeK[2] 
+        & bio.kobe$unit%in%input$stockK
+        & bio.kobe$scenario%in%input$scenarioK,]
+
+    res
+    }
+  )
 
   
   plotKobe <- function(){
-      kobePhase(dataK())+
-      geom_point(aes(stock,harvest, group=unit, col=scenario))+
-      geom_text(data=dataK(),aes(stock,harvest, col=scenario, group=unit, label=year))+
-      geom_path(aes(stock, harvest, group=unit, col=scenario), data=dataK())+
-      facet_wrap(~unit)+
+
+    dd <- dataK()
+    dy0 <- subset(dd, year == unique(dd$year)[1])
+    dy1 <- subset(dd, year == unique(dd$year)[length(unique(dd$year))])
+    
+    kobePhase(dataK(), ylim = c(0, max(dataK()$harvest)), xlim = c(0, max(dataK()$stock))) + 
+      geom_point(aes(stock,harvest, group = scenario, col = scenario)) + 
+      geom_path( aes(stock,harvest, group = scenario, col = scenario)) + 
+      geom_text(aes(stock, harvest, label = year), data = dy0, pch = 16, col = 1) +
+      geom_text(aes(stock, harvest, label = year), data = dy1, pch = 4, col = 1) +
+      facet_wrap(~unit) +
       theme(text=element_text(size=16),
             title=element_text(size=16),
-            strip.text=element_text(size=16))
+            strip.text=element_text(size=16)) #+
+  #    labs(caption = 'First year = black dot & Final year = black cross')
   }
   
   output$plotK <- renderPlot({
-
+ #   browser()
+    if (is.null(dataK())) return()
     plotKobe()
   })
   
@@ -134,9 +333,9 @@ server <- function(input, output, session){
  })
   
   print('two')
-#-----------------------------------------------------------------------------------------------------------------------  
-# PAGE_simulation STOCK_Biological risk
-#-----------------------------------------------------------------------------------------------------------------------  
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~-  
+  #### PAGE_simulation STOCK_Biological risk  ####
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~-  
   
   dataR<-reactive({
     req(input$stockR)
@@ -148,16 +347,28 @@ server <- function(input, output, session){
   
   
   plotSR <- function(){
-    ggplot(dataR(), aes(x=year, y=value, group=scenario, color=scenario))+
-      geom_line(aes(color=scenario), lwd = 1.5)+
+    p <- ggplot(dataR(), aes(x=year, y=value, group=scenario, color=scenario))+
+      geom_line(aes(color=scenario), lwd = 1)+
+       # projection starting year 
       facet_grid(indicator~unit)+
       theme_bw()+
       theme(text=element_text(size=16),
             title=element_text(size=16),
-            strip.text=element_text(size=16),
-            axis.text.x = element_text(angle = 90, hjust = 1))+
+            strip.text=element_text(size=16)#,
+            #axis.text.x = element_text(angle = 90, hjust = 1)
+            )+
       xlab("Year")+ ylab("Probability")
+    
+    if(!is.null(proj.yr)){
+      p <- p +  geom_vline(aes(xintercept=proj.yr), color="grey", linetype="dotted", lwd =1)
+    }
+    
+    p
+    
   }
+  
+ 
+  
   
   output$plotR<-renderPlot({
     plotSR()
@@ -189,16 +400,127 @@ server <- function(input, output, session){
   )
   
   print('three') 
-#-----------------------------------------------------------------------------------------------------------------------  
-# PAGE_simulation FLEET
-#-----------------------------------------------------------------------------------------------------------------------  
   
-  #---------------------------------------------------
-  # PAGE_simulation FLEET_TIMES SERIES
-  #---------------------------------------------------
-  PlotHeight_flt <- reactive({
-    nids <- length(input$fleetF)
-    return(300*nids)})
+  #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~-  
+  #### PAGE_simulation STOCK_Spider plot  ####
+  #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~-  
+  
+    dataSP<-reactive({
+      
+      if (input$yearSP == "radio1"){
+        req(input$stockSP)
+      
+      dat <- bio[bio$year == input$yearSP0 & bio$stock %in% input$stockSP & 
+               bio$indicator %in% input$indicatorSP & bio$scenario %in% input$scenarioSP,]
+      
+      dat <- dat %>% group_by(stock, indicator)  %>% mutate(value2 = q50/max(q50))
+      dat <- dat[order(dat$scenario), ]
+      
+   #   browser()
+      
+      }else{
+
+      if (input$yearSP == "radio2"){
+          req(input$stockSP)
+       dat1 <- bio[bio$year %in% c(input$yearSP1) & bio$stock %in% input$stockSP & 
+                  bio$indicator %in% input$indicatorSP & bio$scenario%in%input$scenarioSP,]
+       dat2 <- bio[bio$year %in% c(input$yearSP2) & bio$stock %in% input$stockSP & 
+                     bio$indicator %in% input$indicatorSP & bio$scenario%in%input$scenarioSP,]
+       dat <- dat1 %>% bind_cols(q502= dat2$q50)
+       
+       dat <- dat %>% group_by(stock, scenario, indicator) %>% summarize(Ratio = c(q502/q50))
+       
+       dat <- dat[order(dat$scenario), ]
+
+       #browser()
+        } 
+      
+      dat
+      }
+    })
+
+    
+  output$plotSP<-renderPlot({
+
+     if (input$yearSP == "radio1"){
+    #   browser()
+       
+       dt <- dataSP()
+  
+       ggplot(data=dataSP(), aes(x=scenario, y=value2, col=stock, fill=stock, group=stock))+
+         # geom_polygon(alpha=0.2, lwd=1)+
+         geom_polygon(fill=NA, lwd=1)+
+         geom_point(cex=1.5)+
+         facet_grid (. ~ indicator)+
+         coord_radar()+
+         theme_bw()+
+         theme(text=element_text(size=14),
+               strip.text=element_text(size=14),
+               title=element_text(size=18,face="bold"))+
+         ylab("") +ylim(c(0,max(c(1,dt$value2))))
+     }else{
+    
+     if (input$yearSP == "radio2"){
+
+       dt <- dataSP()
+       
+      ggplot(data=dataSP(), aes(x=scenario, y=Ratio, col=stock, fill=stock, group=stock))+
+        # geom_polygon(alpha=0.2, lwd=1)+
+        geom_polygon(fill=NA, lwd=1)+
+        geom_point(cex=1.5)+
+        facet_grid (. ~ indicator)+
+        coord_radar()+
+        theme_bw()+
+        theme(text=element_text(size=16),
+              strip.text=element_text(size=16),
+              title=element_text(size=18,face="bold"))+
+        ylab("")+
+         ylim(c(0,max(c(1,dt$Ratio))))
+
+     }
+     }
+      
+    })
+  
+  # Code to download the plot
+  getWSP <- function(){
+    return(input$fileWSP)
+  }
+  
+  getHSP <- function(){
+    return(input$fileHSP)
+  }
+  
+  getScSP <- function(){
+    return(input$fileScSP)
+  }
+  
+  # Download the plot
+  output$downSP <- downloadHandler(
+    filename =  function() {
+      paste(input$filenmSP, input$fileTypeSP, sep=".")
+    },
+    # content is a function with argument file. content writes the plot to the device
+    content = function(file) {
+      ggsave(file, plotSP(), width = getWSP(), height = getHSP(), units = 'cm', scale = getScSP())
+    } 
+  )
+  
+print('three spider')
+    
+  
+  
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~-  
+#### PAGE_simulation FLEET  ####
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~-  
+  
+  #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~-
+#### PAGE_simulation FLEET_TIMES SERIES  ####
+  #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~-
+  # PlotHeight_flt <- reactive({
+  #   nids <- length(input$fleetF)
+  #   return(300*nids)})
+  # 
   
   observe ({
     dataF<-reactive({
@@ -209,20 +531,44 @@ server <- function(input, output, session){
           & flt$indicator%in%input$indicatorF,]
     })
     
+    dataFI<-reactive({
+      req(input$iterF)
+      fltIt[fltIt$year>=input$rangeF[1] & fltIt$year<=input$rangeF[2] 
+               & fltIt$fleet%in%input$fleetF
+               & fltIt$indicator%in%input$indicatorF
+               & fltIt$scenario%in%input$scenarioF
+               & fltIt$iter%in%input$iterF,]
+    })
+    
     
     plotFleet <- function(){
       
-      p <- ggplotF <-ggplot(dataF(), aes(x=as.numeric(year), y=q50, color=scenario))+
-                  geom_line(aes(color=scenario),lwd=1)+
-                  ylab("")+
-                  xlab("Year")+
-                  theme(strip.text=element_text(size=16),
-                    legend.title=element_text(size=14),
-                    axis.title=element_text(size=14))
+      p <- ggplot()+
+                geom_line(data= dataF(), aes(x=year, y=q50, color=scenario),lwd=1)+
+                ylab("")+ xlab("Year")+
+                theme_bw()+
+                theme( strip.text=element_text(size=16),
+                        title=element_text(size=16),
+                        text=element_text(size=16))+
+                scale_x_continuous(limits = c(input$rangeF[1], input$rangeF[2]))
+      
+      # Iteraction
+      if(!is.null(input$iterF)){
+        p <- p + geom_line(data = dataFI(), aes(x=year, y=q50, group = interaction(scenario, iter), color = scenario,  linetype = iter), lwd=1)+
+          scale_linetype_manual(values = c(2:6))
+      }
+      
+      
+      if(!is.null(proj.yr)){
+        p <- p + geom_vline(data=dataF(), aes(xintercept=proj.yr), color="grey", linetype="dotted", lwd =1) # projection starting year 
+          
+      }
+      
       
       # With Conf Int.
       if (input$fitCIF == TRUE){
-        p <- p + geom_ribbon(aes(x=as.numeric(year), ymin=q05, ymax=q95,fill = scenario), alpha=0.3) 
+        p <- p + geom_ribbon(data = dataF(),  aes(x=year, ymin=q05, ymax=q95,fill = scenario), alpha=0.3)#+
+                 #geom_ribbon(data = dataFI(), aes(x=year, ymin=q05, ymax=q95,group = interaction(scenario, iter), fill = scenario), alpha=0.1)
       }
       
       if(input$fitF==TRUE){
@@ -238,7 +584,8 @@ server <- function(input, output, session){
    
     output$plotF <-renderPlot({
       print(plotFleet())
-    }, height = PlotHeight_flt)
+    }#, height = PlotHeight_flt
+    )
     
     # Code to download the plot
     getFW <- function(){
@@ -267,14 +614,14 @@ server <- function(input, output, session){
     })#end of the observer
   print('four') 
 
-    #-------------------------------
-    # PAGE_simulation FLEET_NPV
-    #-------------------------------
+    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~-
+  #### PAGE_simulation FLEET_NPV  ####
+    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~-
   
     # print('caracola02')   
     dataN<-reactive({
         req(input$fleetN)
-        npv2[npv2$fleet%in%input$fleetN & npv2$scenario%in%input$scenarioN,]})
+        npv[npv$fleet%in%input$fleetN & npv$scenario%in%input$scenarioN,]})
 
     plotNPV <- function(){
       ggplot(dataN(), aes(x=fleet, y=q50, group=scenario))+
@@ -321,9 +668,9 @@ server <- function(input, output, session){
   
   
       print('five')  
-    #-------------------------------
-    # PAGE_simulation FLEET_Risk
-    #-------------------------------
+    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~-
+      #### PAGE_simulation FLEET_Risk  ####
+    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~-
   
     dataE<-reactive({
           req(input$fleetE)
@@ -331,13 +678,21 @@ server <- function(input, output, session){
 
       
     plotFLRisk <- function(){
-        ggplot(dataE(), aes(x=as.numeric(year), y=value, color=scenario))+
+        p <- ggplot(dataE(), aes(x=year, y=value, color=scenario))+
         geom_line(aes(color=scenario),lwd=1)+
         facet_wrap(~unit, scales="free")+
         ylab("")+ xlab("Year")+
-        theme(strip.text=element_text(size=16),
-              legend.title=element_text(size=14),
-              axis.title= element_text(size =14))
+        theme_bw()+
+        theme( strip.text=element_text(size=16),
+               title=element_text(size=16),
+               text=element_text(size=16))
+      
+        if(!is.null(proj.yr)){
+            p <- p + geom_vline(aes(xintercept=proj.yr), color="grey", linetype="dotted", lwd =1) # projection starting year 
+        
+        }
+      
+        p
       }
       
     output$plotFR <-renderPlot({
@@ -369,17 +724,115 @@ server <- function(input, output, session){
       } 
     )
     print('six')
-  
-#-----------------------------------------------------------------------------------------------------------------------  
-# PAGE_simulation METIER_Times series 
-#-----------------------------------------------------------------------------------------------------------------------  
-  
-  PlotHeight_mt <- reactive({
     
-    nids <- length(input$metierM)
+    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    #### PAGE_simulation FLEET_Spider plot  ####
+    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     
-    return(300*nids)})
+    dataFP<-reactive({
+      
+      if (input$yearFP == "radioF1"){
+        req(input$fleetFP)
+        
+        dat<-flt.scaled[flt.scaled$year == input$yearFP0
+                        & flt.scaled$fleet%in%input$fleetFP
+                        & flt.scaled$indicator%in%input$indicatorFP
+                        & flt.scaled$scenario%in%input$scenarioFP,]
+        
+      }else{
+        
+        if (input$yearFP == "radioF2"){
+          req(input$fleetFP)
+          dat <- flt.scaled[flt.scaled$year%in%c(input$yearFP1,input$yearFP2)
+                            & flt.scaled$fleet%in%input$fleetFP
+                            & flt.scaled$indicator%in%input$indicatorFP
+                            & flt.scaled$scenario%in%input$scenarioFP,]
+          
+          dat<- dat %>% group_by (fleet, scenario, indicator) %>%
+            summarize(Ratio = c(value2[1] / value2[2]))
+          
+        } 
+        
+        dat
+      }
+    })
+    
+    
+    output$plotFP<-renderPlot({
+      
+      if (input$yearFP == "radioF1"){
+        
+        ggplot(data=dataFP(), aes(x=scenario, y=value2, col=fleet, fill=fleet, group=fleet))+
+          # geom_polygon(alpha=0.2, lwd=1)+
+          geom_polygon(fill=NA, lwd=1)+
+          geom_point(cex=1.5)+
+          facet_grid (. ~ indicator)+
+          coord_radar()+
+          theme_bw()+
+          theme(text=element_text(size=14),
+                strip.text=element_text(size=14),
+                title=element_text(size=18,face="bold"))+
+          ylab("")+
+          ylim(c(0,1))
+      }else{
+        
+        if (input$yearFP == "radioF2"){
+          
+          ggplot(data=dataFP(), aes(x=scenario, y=Ratio, col=fleet, fill=fleet, group=fleet))+
+            # geom_polygon(alpha=0.2, lwd=1)+
+            geom_polygon(fill=NA, lwd=1)+
+            geom_point(cex=1.5)+
+            facet_grid (. ~ indicator)+
+            coord_radar()+
+            theme_bw()+
+            theme(text=element_text(size=16),
+                  strip.text=element_text(size=16),
+                  title=element_text(size=18,face="bold"))+
+            ylab("")+
+            ylim(c(0,1))
+          
+        }
+      }
+      
+    })
+    
+    # Code to download the plot
+    getWFP <- function(){
+      return(input$fileWFP)
+    }
+    
+    getHFP <- function(){
+      return(input$fileHFP)
+    }
+    
+    getScFP <- function(){
+      return(input$fileScFP)
+    }
+    
+    # Download the plot
+    output$downFP <- downloadHandler(
+      filename =  function() {
+        paste(input$filenmFP, input$fileTypeFP, sep=".")
+      },
+      # content is a function with argument file. content writes the plot to the device
+      content = function(file) {
+        ggsave(file, plotFP(), width = getWFP(), height = getHFP(), units = 'cm', scale = getScFP())
+      } 
+    )
+    
+    print('six spider')
+    
   
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~-  
+#### PAGE_simulation METIER_Times series  ####
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~-  
+  
+  # PlotHeight_mt <- reactive({
+  #   
+  #   nids <- length(input$metierM)
+  #   
+  #   return(300*nids)})
+  # 
   
   observe ({
     
@@ -399,12 +852,18 @@ server <- function(input, output, session){
     plotMetier <- function(){
         p <-ggplot(dataM(), aes(x=as.numeric(year), y=q50, color=scenario))+
                   geom_line(aes(color=scenario),lwd=1)+
-                  ylab("")+
-                  xlab("Year")+
-                  theme(strip.text=element_text(size=16),
-                  legend.title=element_text(size=14),
-                  axis.title=element_text(size=14))
+                  ylab("")+xlab("Year")+
+                  theme_bw()+
+                  theme( strip.text=element_text(size=16),
+                          title=element_text(size=16),
+                        text=element_text(size=16))+
+                  scale_x_continuous(limits = c(input$rangeM[1], input$rangeM[2]))
       
+        if(!is.null(proj.yr)){
+         p <- p + geom_vline(aes(xintercept=proj.yr), color="grey", linetype="dotted", lwd =1) # projection starting year 
+          
+        }
+        
         if(input$fitCIM == TRUE)
             p <- p + geom_ribbon(aes(x=as.numeric(year), ymin=q05, ymax=q95,fill = scenario), alpha=0.3)
         
@@ -418,7 +877,9 @@ server <- function(input, output, session){
     
     
     output$plotMM<-renderPlot({
-      print(plotMetier())}, height = PlotHeight_mt)
+      print(plotMetier())}
+      #, height = PlotHeight_mt
+      )
     
     # Code to download the plot
     getMW <- function(){
@@ -447,16 +908,16 @@ server <- function(input, output, session){
   })#end of the observer
   
   print('seven')
-#-----------------------------------------------------------------------------------------------------------------------  
-# PAGE_simulation FLEET BY_Times series 
-#-----------------------------------------------------------------------------------------------------------------------  
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~-  
+  #### PAGE_simulation FLEET BY_Times series  ####
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~-  
   
   # print('caracola06')      
-  PlotHeight_Fby <- reactive({
-    
-    nids <- length(input$fleetFby)*length(input$stockFby)
-    
-    return(300*nids)})
+  # PlotHeight_Fby <- reactive({
+  #   
+  #   nids <- length(input$fleetFby)*length(input$stockFby)
+  #   
+  #   return(300*nids)})
   
   observe ({
     
@@ -484,12 +945,19 @@ server <- function(input, output, session){
                 geom_line(aes(color=scenario),lwd=1)+
                 ylab("")+
                 xlab("Year")+
-                theme(strip.text=element_text(size=16),
-                legend.title=element_text(size=14),
-                axis.title=element_text(size=14))
+                theme_bw()+
+                theme( strip.text=element_text(size=16),
+                      title=element_text(size=16),
+                      text=element_text(size=16))
         
         if(input$fitCIFby == TRUE){
           p <- p + geom_ribbon(aes(x=as.numeric(year), ymin=q05, ymax=q95,fill = scenario), alpha=0.3)
+        }
+        
+        
+        if(!is.null(proj.yr)){
+          p <- p + geom_vline(aes(xintercept=proj.yr), color="grey", linetype="dotted", lwd =1) # projection starting year 
+          
         }
         
         if(input$fitFby == FALSE){
@@ -503,7 +971,8 @@ server <- function(input, output, session){
       
       output$plotFby <-renderPlot({
         print(plotFleetby())
-      }, height = PlotHeight_Fby)
+      }#, height = PlotHeight_Fby
+      )
       
       # Code to download the plot
       getFbyW <- function(){
@@ -531,15 +1000,15 @@ server <- function(input, output, session){
 })
     
   print('eight')
-#-----------------------------------------------------------------------------------------------------------------------  
-# PAGE_simulation METIER BY_Times series 
-#-----------------------------------------------------------------------------------------------------------------------  
-  
-  PlotHeight_Mby <- reactive({
-    
-    nids <- length(input$fleetMby)*length(input$stockMby)
-    
-    return(300*nids)})
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~-  
+  #### PAGE_simulation METIER BY_Times series  ####
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~-  
+  # 
+  # PlotHeight_Mby <- reactive({
+  #   
+  #   nids <- length(input$fleetMby)*length(input$stockMby)
+  #   
+  #   return(300*nids)})
   
   
   observe ({
@@ -572,15 +1041,20 @@ server <- function(input, output, session){
                 geom_line(aes(color=scenario),lwd=1)+
                 ylab("")+
                 xlab("Year")+
-                theme(strip.text=element_text(size=16),
-                legend.title=element_text(size=14),
-                axis.title=element_text(size=14))
+                theme_bw()+
+                theme( strip.text=element_text(size=16),
+                      title=element_text(size=16),
+                      text=element_text(size=16))
 
         if (input$fitCIMby == TRUE){
           p <- p + geom_ribbon(aes(x=as.numeric(year), ymin=q05, ymax=q95,fill = scenario), alpha=0.3)
         } 
         if(input$fitMby==TRUE){
           p <- p + facet_wrap(metier*stock ~ indicator, ncol=length(input$metierMby), scales="free_y")
+        }
+        if(!is.null(proj.yr)){
+          p <- p + geom_vline(aes(xintercept=proj.yr), color="grey", linetype="dotted", lwd =1) # projection starting year 
+          
         }
         else{
           p <- p + facet_grid(metier*stock ~ indicator)
@@ -590,7 +1064,8 @@ server <- function(input, output, session){
     
     output$plotMby <- renderPlot({
              print(plotMetierby())
-      }, height = PlotHeight_Mby)
+      }#, height = PlotHeight_Mby
+      )
          
     
     # Code to download the plot
@@ -620,9 +1095,9 @@ server <- function(input, output, session){
          
   print('nine')
 
-#-----------------------------------------------------------------------------------------------------------------------  
-# PAGE_simulation ADVICE_Times series 
-#-----------------------------------------------------------------------------------------------------------------------  
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~-  
+  #### PAGE_simulation ADVICE_Times series  ####
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~-  
   
      PlotHeight_adv <- reactive({
        
@@ -639,12 +1114,19 @@ server <- function(input, output, session){
       
       
       plotAdvice <- function(){
-        p <- ggplotA <-ggplot(dataA(), aes(x=as.numeric(year), y=q50, color=scenario))+
+       p <-ggplot(dataA(), aes(x=as.numeric(year), y=q50, color=scenario))+
               geom_line(lwd=1)+
               ylab("")+ xlab("Year")+
-              theme(strip.text=element_text(size=16),
-                    legend.title=element_text(size=14),
-                    axis.title=element_text(size=14))
+              theme_bw()+
+              theme( strip.text=element_text(size=16),
+                      title=element_text(size=16),
+                      text=element_text(size=16))
+        
+        if(!is.null(proj.yr)){
+          p <- p + geom_vline(aes(xintercept=proj.yr), color="grey", linetype="dotted", lwd =1) # projection starting year 
+          
+        }
+        
         
         if (input$fitCIA == TRUE){
           p <- p +  geom_ribbon(aes(x=as.numeric(year), ymin=q05, ymax=q95,fill = scenario), alpha=0.3)
@@ -661,7 +1143,8 @@ server <- function(input, output, session){
       
       output$plotA <- renderPlot({
         print(plotAdvice())
-      }, height = PlotHeight_adv)
+      }#, height = PlotHeight_adv
+      )
       
       
       # Code to download the plot
@@ -693,15 +1176,15 @@ server <- function(input, output, session){
     
     print('ten')
   
-#-----------------------------------------------------------------------------------------------------------------------  
-# PAGE_simulation Summary_polar plots 
-#-----------------------------------------------------------------------------------------------------------------------  
-  
-    PlotHeight_sum <- reactive({
-      
-      nids <- length(input$scenarioP)
-      
-      return(300*nids)})
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~-  
+    #### PAGE_simulation Summary_polar plots  ####
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~-  
+    # 
+    # PlotHeight_sum <- reactive({
+    #   
+    #   nids <- length(input$scenarioP)
+    #   
+    #   return(300*nids)})
     
     # print('caracola09')   
     #reactive: ssb and f
@@ -723,13 +1206,13 @@ server <- function(input, output, session){
 
       # cuadrante superior: 2 biological indicators by stock:
       st <- merge(st1(), st3, by=c("indicator","stock", "scenario"))
-      st$ratio <- st$q50.x/st$q50.y
+      st$ratio <- st$q50.y/st$q50.x
       st.dat <- st
       st.dat$stock <- paste("stock.",st.dat$stock,sep="")
       
       # cuadrante inferior: 2 economical indicators
       fl <- merge(fl1(), fl3, by=c("indicator","fleet", "scenario"), all.x=TRUE)
-      fl$ratio <- fl$q50.x/fl$q50.y
+      fl$ratio <- fl$q50.y/fl$q50.x
       fl.dat <- fl
       fl.dat$fleet <- paste("fleet.",fl.dat$fleet,sep="")
       
@@ -796,15 +1279,17 @@ server <- function(input, output, session){
         annotate(geom="text",x=w*5/2, y=ymax, label=c("Capacity"), size=6)+
         annotate(geom="text",x=w*7/2, y=ymax, label=c("Gross-Surplus"), size=6)+
         labs(fill="")+
-        geom_text(aes(x=1, y = min(dat.flpolar$ratio),label = sum(npv2$q50)))
+        geom_text(aes(x=1, y = min(dat.flpolar$ratio),label = sum(npv$q50)))
       
       return(p)
       
     }
     
     output$plotP <- renderPlot({
+      # browser()
         print(plotPolar())
-    }, height = PlotHeight_sum)
+    }#, height = PlotHeight_sum
+    )
     
     # Code to download the plot
     getPW <- function(){
